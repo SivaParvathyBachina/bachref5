@@ -10,69 +10,58 @@
 #include <signal.h>
 #include <fcntl.h>
 #include "shared_mem.h"
-#define SEMNAME "sembach1981s"
-#include <semaphore.h>
+#include <sys/msg.h>
+//#include "priority_queue.h"
 #define NANOSECOND 1000000000
 #define LOGFILESIZE 100000
 
-key_t shmKey, resKey, pcbKey, req_resKey;
-int shmId, resId, pcbshmId,req_resId, log_lines = 0;
-shared_mem *clock;
-pcb *pcbs;
-resource *resources;
-req_res *request;
+int status,x,i,m,n,p,q;
+key_t clockKey,shmKey, stateKey, msgqueueKey;
+int clockId, stateId, shmId, msgqueueId;
+logical_clock *clock;
+shared_mem *sharedmem;
+res_desc *system_state;
 FILE *logfile;
 char *file_name;
-sem_t *mySemaphore;
-int i,m,k,x,k,j,status,p,q;
-
+char *res_claims[21];
+int child_pids[18];
+long seed_value ;
+int bit_vector[18];
 
 void clearSharedMemory() {
-//fprintf(stderr, "Total Children Forked : %d \n", child_count);
 fprintf(stderr, "------------------------------- CLEAN UP ----------------------- \n");
 shmdt((void *)clock);
-shmdt((void *)resources);
-shmdt((void *)pcbs);
-shmdt((void *)request);
+shmdt((void *)sharedmem);
+shmdt((void *)system_state);
 //fprintf(stderr,"Closing File \n");
 //fclose(logfile);
 fprintf(stderr, "OSS started detaching all the shared memory segments \n");
+shmctl(clockId, IPC_RMID, NULL);
+shmctl(stateId, IPC_RMID, NULL);
 shmctl(shmId, IPC_RMID, NULL);
-shmctl(resId, IPC_RMID, NULL);
-shmctl(pcbshmId, IPC_RMID, NULL);
-shmctl(req_resId, IPC_RMID, NULL);
-sem_unlink(SEMNAME);
-fprintf(stderr, "Unlinked Semaphore \n");
+msgctl(msgqueueId, IPC_RMID, NULL);
 fprintf(stderr, "OSS Cleared the Shared Memory \n");
 }
 
-/* void killExistingChildren(){
-for(k=0; k<18; k++)
+void printInfo()
 {
-if(process_control_blocks[k].processId != 0)
+int p, q;
+ fprintf(stderr, "\n\n");
+for (p =0; p< 18;p++)
 {
-kill(process_control_blocks[k].processId, SIGTERM);
-}
-}
-} */
+        for(q=0; q< 20; q++)
+        {
+        fprintf(stderr, "%d ", system_state -> maxclaims[p][q]);
 
-int randomNumberGenerator(int min, int max)
-{
-	return ((rand() % (max-min +1)) + min);
+        if(q == 19)
+        fprintf(stderr, "\n");
+        }
+}
 }
 
-void initialize_resources(){
-srand(time(NULL));
-int i;
-	for(i = 0; i < 20; i++)
-	{
-		srand(i++);
-		resources[i].total_instances = randomNumberGenerator(1,10);
-		resources[i].avail_instances = resources[i].total_instances;
-	}
-}
 
 void myhandler(int s) {
+printInfo();
 if(s == SIGALRM)
 {
 fprintf(stderr, "Master Time Done\n");
@@ -90,18 +79,108 @@ clearSharedMemory();
 exit(1);
 }
 
-int q;
-int getPCBBlockId(int processId)
+int checkIfSafeState(system_state state)
 {
-        for(q = 0; q<18;q++)
-        {
-                if(pcbs[q].processId == processId)
-                return q;
-        }
+	int currentavailable[m];
+	int m,k,q = 0, resource_count = 0, process_index;
+	for(m = 0; m < 18; m++)
+	{
+		if(bit_vector[m] == 1)
+		 q++;
+	}
+	int running[q];
+	
+	for(m = 0; m < 18; m++)
+	{
+		if(bit_vector[m] == 1)
+		{
+		running[k] = m;
+		k++;
+		}
+	}
+
+	int i,j;
+	for(i = 0; i < 20; i++)
+		currentavailable[i] = available[i];
+	
+	int possible = 1, found = 0, pid_location;
+	while(possible)
+	{
+		for(j = 0; j < q; j++)
+		{
+		int temp = running[j];
+		if(temp != -1)
+		{
+			for(i = 0; i < 20; i++)
+			{
+				if(state.maxclaims[temp][i] - allocated[temp][i] <= currentavailable[i])
+				reource_count++;
+			}
+			if(resource_count == 20)
+			{
+			process_index = temp;
+			found = 1;
+			break;
+			}
+		}
+		}
+		if(found)
+		{
+			int n;
+			for(n = 0; n < 20; n++)
+			{
+			currentavailable[n] = currentavailable[n] + allocated[process_index][n];
+			running[process_index] = -1;
+			found = 0;
+			}
+		}
+		else
+		possible = 0;	
+	}
+	int x, alldone;
+	for(x = 0; x< q; x++)
+	{
+		if(running[x] == -1)
+		alldone = 1;
+	}
+	if(alldone == 1)
+		return 1;
+	else 
+		return 0;
+} 
+
+void initialize_resources(){
+//srand(time(NULL));
+int i;
+	for(i = 0; i < 20; i++)
+	{
+		srand(seed_value++);
+		system_state -> resources[i] = rand() % 10;
+		system_state -> available[i] = system_state -> resources[i];
+	}
+}
+
+
+void generateresourceclaims(int pindex)
+{
+	int p = 0,q, maxres;
+	for(q = 0; q < 20; q++)
+	{
+		char array[sizeof(int)];
+		srand(seed_value++);
+		maxres = system_state -> resources[q];
+		if(maxres == 0)
+		system_state -> maxclaims[pindex][q] = 0;
+		else 
+		system_state -> maxclaims[pindex][q] = rand() % maxres;
+		snprintf(array, sizeof(int), "%d", system_state -> maxclaims[pindex][q]);
+		res_claims[q]= malloc(sizeof(array));
+		strcpy(res_claims[q], array);
+	}
 }
 
 int main (int argc, char *argv[]) {
-
+seed_value = time(NULL);
 while((x = getopt(argc,argv, "hs:l:")) != -1)
 switch(x)
 {
@@ -116,10 +195,40 @@ case '?':
         return 1;
 }
 
+//Queue* blocked_queue = create_queue(20);
+
 signal(SIGALRM, myhandler);
 alarm(2);
 signal(SIGINT, myhandler);
 
+clockKey = ftok(".", 'c');
+clockId = shmget(clockId, sizeof(logical_clock), IPC_CREAT | 0666);
+if(clockId <0 )
+{
+	fprintf(stderr, "Error in shmget for Clock \n");
+	exit(1);
+}
+
+clock = (logical_clock*) shmat(clockId, NULL, 0);
+fprintf(stderr, "Allocated Shared Memory For OSS Clock \n");
+
+
+stateKey = ftok(".bac", 's');
+stateId = shmget(stateKey, sizeof(res_desc), IPC_CREAT | 0666);
+if(stateId < 0)
+{
+	fprintf(stderr, "Error in Shmget for State \n");
+	exit(1);
+}
+
+system_state = (res_desc*) shmat(stateId, NULL, 0);
+if(system_state == (void *) -1)
+{
+	perror("Error in attaching Memory to State\n");
+	exit(1);
+}
+
+fprintf(stderr, "Allocated Shared Memory For State Struct \n");
 shmKey = ftok(".", 'c');
 shmId = shmget(shmKey, sizeof(shared_mem), IPC_CREAT | 0666);
 
@@ -129,159 +238,73 @@ if(shmId <0 )
 	exit(1);
 }
 
-clock = (shared_mem*) shmat(shmId, NULL, 0);
+sharedmem = (shared_mem*) shmat(shmId, NULL, 0);
+fprintf(stderr, "Allocated Shared Memory For sharedMem \n");
 
-fprintf(stderr, "Allocated Shared Memory For OSS Clock \n");
+msgqueueKey = ftok(".", 'p');
+msgqueueId = msgget(msgqueueKey, IPC_CREAT | 0666);
+msgqueue.msg_type = 1;
+snprintf(msgqueue.msg_txt,15, "%s", "parvathy");
+msgsnd(msgqueueId, &msgqueue, sizeof(msgqueue), 0);
 
-int pcbshmSize = sizeof(pcbs) * 18;
-pcbKey = ftok(".", 'x');
-pcbshmId = shmget(pcbKey, pcbshmSize, IPC_CREAT | 0666);
-if(pcbshmId < 0)
-{
-	fprintf(stderr, "Error in Shmget for PCB's \n");
-	exit(1);
-}
-
-pcbs = (pcb*) shmat(pcbshmId, NULL, 0);
-if(pcbs == (void *) -1)
-{
-	perror("Error in attaching Memory to process_control_blocks \n");
-	exit(1);
-}
-
-
-int resources_size = sizeof(resources) * 20;
-
-resKey = ftok(".bac", 's');
-resId = shmget(resKey, sizeof(resources_size), IPC_CREAT | 0666);
-if(resId < 0)
-{
-	fprintf(stderr, "Error in Shmget for resources \n");
-	exit(1);
-}
-
-resources = (resource*) shmat(resId, NULL, 0);
-if(resources == (void *) -1)
-{
-	perror("Error in attaching Memory to resources \n");
-	exit(1);
-}
-
-req_resKey = ftok(".", 'b');
-req_resId = shmget(req_resKey, sizeof(req_res), IPC_CREAT | 0666);
-
-if(req_resId <0 )
-{
-        fprintf(stderr, "Error in shmget from Request Struct \n");
-        exit(1);
-}
-
-request = (req_res*) shmat(req_resId, NULL, 0);
-
-
-mySemaphore = sem_open(SEMNAME, O_CREAT, 0666,0);
-
-fprintf(stderr, "Created Semaphore with Name %s \n", SEMNAME);
-
-clock -> seconds = 0;
-clock -> nanoseconds = 0;
-
-/*if(file_name == NULL)
-file_name = "default";
-logfile = fopen(file_name, "w"); */
-
-srand(time(NULL));
-for(i = 0; i < 18; i++)
-{
-	pcbs[i].processId = 0;
-	pcbs[i].request = 0;
-	pcbs[i].release = 0;
-	pcbs[i].terminate = 0;
-	int j;
-	for(j = 0; j < 20; j++) {
-	pcbs[i].maxclaim.qty[j] = 0;
-	pcbs[i].allocation.qty[j] = 0;
-	}
-}
-
-int currentPCBBlock = -1,k, randomvalue, next_child_time = 500000000;
 pid_t mypid;
+int n;
+for(n = 0;n < 18; n++)
+{
+	child_pids[n] = 0;
+	bit_vector[n] = -1;
+}
+
 initialize_resources();
 
+int m; 
+for(m = 0; m< 20; m++)
+	fprintf(stderr, "%d ", system_state -> resources[m]);
+fprintf(stderr, "\n");
+fprintf(stderr, "---------------------------------------------------------- \n");
+
+
+int index = -1,b, next_child_time;
 while(1)
 {
-	currentPCBBlock = -1;
-	for(k = 0; k<18; k++)
+	index = -1;
+	for(b = 0; b< 18; b++)
 	{
-		if(pcbs[k].processId == 0)
+		if(child_pids[b] == 0)
 		{
-		currentPCBBlock = k;
+		index = b;
 		break;
 		}
 	}
-	if(currentPCBBlock >= 0 && (clock -> nanoseconds >= next_child_time))
-	{
-		if((mypid = fork()) ==0)
+		if((index >= 0)/* && (clock -> seconds >= next_child_time) */)
 		{
-			char argument1[50], argument2[20],argument3[50], argument4[20], argument5[20];
-                	char *s_val = "-s";
-			char *pcbshmVal2 = "-j";
-			char *semVal = "-k";
-			char *res_val = "-p";
-			char *req_val = "-b";
-			char *arguments[] = {NULL,res_val,argument2,s_val, argument3,pcbshmVal2, argument4,semVal, argument5,req_val, argument1, NULL};	
-			arguments[0]="./user";
-			sprintf(arguments[2], "%d", resId);
-			sprintf(arguments[4], "%d", shmId);
-               		sprintf(arguments[6], "%d", pcbshmId);
-			sprintf(arguments[8], "%s", SEMNAME);
-			sprintf(arguments[10], "%d", req_resId);	
-			execv("./user", arguments);
+			generateresourceclaims(index);
+			if((mypid = fork()) ==0)
+			{
+			char argument2[20],argument3[50], argument4[20], argument5[20];
+			sprintf(argument2, "%d", clockId);
+               		sprintf(argument4, "%d", shmId);
+			sprintf(argument3, "%d", msgqueueId);
+			sprintf(argument5, "%d", stateId);
+			execle("./user", argument2, argument4, argument3, argument5, NULL ,res_claims );
                 	fprintf(stderr, "Error in exec");
 			exit(0); 
+			}
+		child_pids[index] = mypid;
+		bit_vector[index] = 1;
 		}
-	}
 	
-	pcbs[currentPCBBlock].processId = mypid;
-	int p;
-	for(p = 0; p<20; p++)
-	{
-		int claim = rand() % 3 + 1;
-		pcbs[currentPCBBlock].maxclaim.qty[p] = claim;
-	}	
-	
-	clock -> nanoseconds += 1;
+	srand(seed_value++);	
+	next_child_time += rand() % 2;
+	clock -> nanoseconds += 1000;
 	if(clock -> nanoseconds >= NANOSECOND) 
 	{
 	clock -> seconds += (clock -> nanoseconds) / NANOSECOND;
 	clock -> nanoseconds = (clock -> nanoseconds) % NANOSECOND;
 	}
-	
-	/*if(request -> processNumber >= 0)
-	{
-		int blockId = getPCBBlockId(processNumber);
-		if(pcbs[blockId].request >= 0)
-		{
-			fprintf(stderr, "Found a request from %d process for %d resource \n",request -> processNumber, pcbs[blockId].request);
-		int resInd = pcbs[blockId].request;
-		int request = pcbs[blockId].maxclaim.qty[resInd] - pcbs[blockId].allocation.qty[resInd];
-		if(request > resources[resInd].avail_instances)
-		enqueue(queue, request -> processNUmber);
-		else{
-		
-		}	
-		} // Request resource
-		
-		if(pcbs[blockId].release >= 0)
-		{
-			int resInd = pcbs[blockId].release;
-			resources[resInd].avail_instances += pcbs[blockId].allocation.qty[resInd];
-		}
-	} */
 }
-wait(NULL);
 
+wait(NULL);
 clearSharedMemory();
 return 0;
-
 }

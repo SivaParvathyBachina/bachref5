@@ -5,34 +5,28 @@ typedef struct
 {
 	long seconds;
 	long nanoseconds;
-}shared_mem;
+}logical_clock;
 
-typedef struct 
+
+typedef struct
 {
-	int qty[20];
+	int resources[20];
+	int available[20];
+	int maxclaims[18][20];
+	int allocated[18][20];
 }res_desc;
 
-typedef struct
-{
-	pid_t processId;
-	int request;
-	int release;
-	int terminate; 
-	res_desc maxclaim;
-	res_desc allocation;
-	
-}pcb;
-
-typedef struct
-{
-	int total_instances;
-	int avail_instances;
-}resource;
+struct msg_buf{
+	long msg_type;
+	char msg_txt[100];
+}msgqueue;
 
 typedef struct
 {
 	int processNumber;
 	int resourceId;
-}req_res;
+	int instances;
+	int granted;
+}shared_mem;
 
 #endif

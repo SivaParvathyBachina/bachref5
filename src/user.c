@@ -11,132 +11,79 @@
 #include <fcntl.h>
 #define MILLION 1000000
 #define NANOSECOND 1000000000
-#include <semaphore.h>
 
-shared_mem *clock;
-pcb *pcbs;
-resource *resources;
-req_res *request;
-int shmId, pcbshmId, resId, req_resId;
-sem_t *mySemaphore;
-char *semName;
+int status,x,i,m,n,p,q;
+int clockId, msgqueueId,msgqueueKey, stateId, shmId;
+logical_clock *clock;
+shared_mem *sharedmem;
+res_desc *system_state;
 pid_t mypid;
-int x;
+long int startsec, startnano;
 
-int randomNumberGenerator(int min, int max)
-{
-	return ((rand() % (max-min +1)) + min);
-}
 
-int getPCBBlockId(int processId)
-{
-	int q;
-        for(q = 0; q<18;q++)
-        {
-                if(pcbs[q].processId == processId)
-                return q;
-        }
-}
-
-int main (int argc, char *argv[]) {
+int main (int argc, char *argv[], char *res_claims[]) {
 
 mypid = getpid();
-while((x = getopt(argc,argv, "p:s:j:k:b:")) != -1)
-switch(x)
-{
-case 'p': 
-	resId = atoi(optarg);
-	break;
-case 's':
-        shmId = atoi(optarg);
-        break;
-case 'j': 
-	pcbshmId = atoi(optarg);
-	break;
-case 'k':
-	semName = optarg;
-	break;
-case 'b':
-	req_resId = atoi(optarg);
-	break;
-case '?':
-        fprintf(stderr, "Invalid Arguments in user\n");
-        return 1;
-}
+clockId = atoi(argv[0]);
+shmId = atoi(argv[1]);
+msgqueueId = atoi(argv[2]);
+stateId = atoi(argv[3]);
 
-clock = (shared_mem*) shmat(shmId, NULL, 0);
+//int t = 0,r;
+//for(t = 0; t< 20; t++)
+//	fprintf(stderr,"%d \t",atoi(res_claims[t]));
 
-if(clock == (void*) -1)
+clock = (logical_clock*) shmat(clockId, NULL, 0);
+
+if(clock == (void *) -1)
 {
-        perror("Error in attaching shared memory User \n");
+        perror("Error in attaching Clock User \n");
         exit(1);
 }
 
-pcbs = (pcb*) shmat(pcbshmId, NULL, 0);
-if(pcbs == (void*) -1)
+system_state = (res_desc*) shmat(stateId, NULL, 0);
+if(system_state == (void *)-1)
 {
-	perror("Error in attaching shared memory to PCB Array \n");
+	perror("Error in State shmat User \n");
 	exit(1);
 }
 
-resources = (resource*) shmat(resId, NULL, 0);
-if(resources == (void*) -1)
-{
-	perror("error in attaching memory to resources \n");
-	exit(1);
-}
 
-request = (req_res*) shmat(req_resId, NULL, 0);
-if(request == (void*) -1)
-{
-	perror("Error in attaching shared memory to request \n");
-        exit(1);	
-}
+//msgqueueKey = ftok(".bacmsg", 'b');
+//msgqueueId = msgget(msgqueueKey, IPC_CREAT | 0666);
+msgrcv(msgqueueId, &msgqueue, sizeof(msgqueue), 1, 0);
+//fprintf(stderr, "Message received is %s \n", msgqueue.msg_txt);
 
-/* int j;
 
-for(j =0; j < 20; j++)
+int randomNumber;
+/*while(1)
 {
-	fprintf(stderr, "resources value: %d --  %d \n", j, resources[j].total_instances);
-} */
-
-int randomNumber, choice;
-int mypid = getpid();
-/* while(1)
-{
+	if((clock -> seconds >= startsec) && (clock -> nanoseconds >= startnano))
+	{	
 	randomNumber = randomNumberGenerator(0,100);
-	if(randomNumber <= 10)
+	if(randomNumber <= 50)
         	choice = 0;
-	else if(randomNumber <= 75)
+	else if(randomNumber <= 98)
         	choice = 1;
 	else
-        	choice = 2;
-	
-	if(choice == 1)
+		choice = 2;
+
+	if(choice == 0)		//Request a resource
 	{
-		request -> processNumber = mypid; 
-		int m = 0;
-		srand(m++);
-		int resource = rand() % 20;
-		request -> resourceId = resource;
-		int blockId = getPCBBlockId(mypid);
-		pcbs[blockId].request = resource;
-		//sem_wait(mySemaphore);
-			
+		msgsnd(msgqueueId, &msgqueue, sizeof(msgqueue), 1);
+		msgrcv(msgqueueId, &msgqueue, size(msgqueue), mypid, 0);
 	}
-	else if(choice == 2)	
+	else if(choice == 2)   //Release a resource
 	{
-		int blockId = getPCBBlockId(mypid);
-		int n;
-		for(n = 0; n < 20; n++)
-		{
-			if(pcbs[blockId].allocation.qty[n] > 0)
-			{
-			pcbs[blockId].release = n;
-			break;
-			}
-		}
-	}	
+	}
+	else
+	{
+		//break;
+	} 
+	
+	startsec += 1;
+	startnano += rand() % 1000;
+	}
 } */
 
 return 0;
