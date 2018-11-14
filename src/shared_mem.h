@@ -18,15 +18,10 @@ typedef struct
 
 struct msg_buf{
 	long msg_type;
-	char msg_txt[100];
-}msgqueue;
-
-typedef struct
-{
 	int processNumber;
 	int resourceId;
-	int instances;
-	int granted;
-}shared_mem;
+	int request_type; //0 for request and 1 for release
+}msgqueue;
+
 
 #endif

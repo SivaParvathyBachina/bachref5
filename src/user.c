@@ -13,25 +13,26 @@
 #define NANOSECOND 1000000000
 
 int status,x,i,m,n,p,q;
-int clockId, msgqueueId,msgqueueKey, stateId, shmId;
+int clockId, msgqueueId,msgqueueKey, stateId;
 logical_clock *clock;
-shared_mem *sharedmem;
 res_desc *system_state;
 pid_t mypid;
+int pid_maxclaims[20], pid_alloc[20];
 long int startsec, startnano;
+long seed_child = 0;
 
 
 int main (int argc, char *argv[], char *res_claims[]) {
 
+seed_child = time(NULL);
 mypid = getpid();
 clockId = atoi(argv[0]);
-shmId = atoi(argv[1]);
-msgqueueId = atoi(argv[2]);
-stateId = atoi(argv[3]);
+msgqueueId = atoi(argv[1]);
+stateId = atoi(argv[2]);
 
-//int t = 0,r;
-//for(t = 0; t< 20; t++)
-//	fprintf(stderr,"%d \t",atoi(res_claims[t]));
+int t = 0;
+for(t = 0; t< 20; t++)
+	pid_maxclaims[t] = atoi(res_claims[t]);
 
 clock = (logical_clock*) shmat(clockId, NULL, 0);
 
@@ -48,43 +49,67 @@ if(system_state == (void *)-1)
 	exit(1);
 }
 
+int m ;
+for(m = 0; m < 20; m++)
+	pid_alloc[m] = 0;
 
-//msgqueueKey = ftok(".bacmsg", 'b');
-//msgqueueId = msgget(msgqueueKey, IPC_CREAT | 0666);
-msgrcv(msgqueueId, &msgqueue, sizeof(msgqueue), 1, 0);
-//fprintf(stderr, "Message received is %s \n", msgqueue.msg_txt);
-
-
-int randomNumber;
-/*while(1)
+int randomNumber, choice;
+while(1)
 {
 	if((clock -> seconds >= startsec) && (clock -> nanoseconds >= startnano))
 	{	
-	randomNumber = randomNumberGenerator(0,100);
+	/*srand((seed_child++)  * mypid);
+	randomNumber = rand() % 100;
 	if(randomNumber <= 50)
         	choice = 0;
 	else if(randomNumber <= 98)
         	choice = 1;
 	else
-		choice = 2;
+		choice = 2;*/
+	choice = 0;
 
 	if(choice == 0)		//Request a resource
 	{
-		msgsnd(msgqueueId, &msgqueue, sizeof(msgqueue), 1);
-		msgrcv(msgqueueId, &msgqueue, size(msgqueue), mypid, 0);
+		srand((seed_child++)  * mypid);
+		int resource = rand() % 20;
+		if(pid_alloc[resource] < pid_maxclaims[resource])
+		{
+		msgqueue.msg_type = 1;
+		msgqueue.processNumber = mypid;
+		msgqueue.resourceId = resource;
+		msgqueue.request_type = 0;
+		msgsnd(msgqueueId, &msgqueue, sizeof(msgqueue), 0);
+		msgrcv(msgqueueId, &msgqueue, sizeof(msgqueue), mypid, 0);
+		//fprintf(stderr, "Received Message for %d \n", mypid);
+		//fprintf(stderr, "----------------------------------- \n");
+		pid_alloc[resource]++;
+		}	
 	}
 	else if(choice == 2)   //Release a resource
 	{
+                srand((seed_child++)  * mypid);
+		int resource = rand() % 20;
+		msgqueue.msg_type = 1;
+		msgqueue.processNumber = mypid;
+		msgqueue.resourceId = resource;
+		msgqueue.request_type = 1;
+		pid_alloc[resource]--;
+		msgsnd(msgqueueId, &msgqueue, sizeof(msgqueue), 0);
 	}
 	else
 	{
-		//break;
+		break;
 	} 
 	
-	startsec += 1;
+	srand((seed_child++)  * mypid);
 	startnano += rand() % 1000;
+	if(startnano >= NANOSECOND)
+	{
+		startsec += startnano/NANOSECOND;
+		startnano = startnano % NANOSECOND;
 	}
-} */
+	}
+} 
 
 return 0;
 }
