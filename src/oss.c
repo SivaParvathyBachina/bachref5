@@ -185,7 +185,10 @@ void run_blocked_process()
 	int index = getIndexById(processId);
 	if(system_state -> available[resource] > 0)
         {
+	int index = getIndexById(processId);
+	bit_vector[index] = 1;
 	fprintf(stderr, "Master Unblocking process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+	//fprintf(stderr, "Index of the Unblocking process %d \n", index);	
 	system_state -> allocated[index][resource] += 1;
 	system_state -> available[resource] -= 1;
 	if(checkIfSafeState(*system_state))
@@ -194,12 +197,22 @@ void run_blocked_process()
 		printInfo();
 		fprintf(stderr, "Master removed process %d  from blocked queue %d \n",processId, resource); 
 	}
+	else
+	{
+		fprintf(stderr, "Master has detected unsafe state for process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		system_state -> allocated[index][resource] -= 1;
+                system_state -> available[resource] += 1;
+		updated_pids[last_used] = processId;
+		updated_res[last_used] = resource;
+		last_used++;
+	}
 	}
 	else
 	{
 		updated_pids[last_used] = processId;
-		updated_res[last_used] = resource;
-		last_used++;
+                updated_res[last_used] = resource;
+		fprintf(stderr, "Master cannot allocate the request for unblockd process %d for request %d at time %ld:%ld\n",  processId, resource, clock -> seconds, clock -> nanoseconds); 
+                last_used++;	
 	}
 	}
 	int j;
@@ -382,6 +395,7 @@ while(1)
                 	system_state -> available[resource] += 1;		
 			enqueue(resources, resource);
 			enqueue(process, processId);
+			bit_vector[index] = 0;
 			fprintf(stderr, "Master blocking process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
 		}
 		}
