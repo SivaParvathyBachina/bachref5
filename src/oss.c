@@ -26,6 +26,10 @@ char *res_claims[21];
 int child_pids[18];
 long seed_value ;
 int bit_vector[18];
+Queue* process;
+Queue* resources;
+int updated_pids[18], last_used = 0;
+int updated_res[18];
 
 void clearSharedMemory() {
 fprintf(stderr, "------------------------------- CLEAN UP ----------------------- \n");
@@ -171,6 +175,41 @@ int checkIfSafeState(res_desc system_state)
 	
 } 
 
+void run_blocked_process()
+{
+	last_used = 0;
+	while(isEmpty(process) > 0)
+	{
+	int processId = dequeue(process);
+	int resource = dequeue(resources);
+	int index = getIndexById(processId);
+	if(system_state -> available[resource] > 0)
+        {
+	fprintf(stderr, "Master Unblocking process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+	system_state -> allocated[index][resource] += 1;
+	system_state -> available[resource] -= 1;
+	if(checkIfSafeState(*system_state))
+	{
+		fprintf(stderr, "Master granted process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		printInfo();
+		fprintf(stderr, "Master removed process %d  from blocked queue %d \n",processId, resource); 
+	}
+	}
+	else
+	{
+		updated_pids[last_used] = processId;
+		updated_res[last_used] = resource;
+		last_used++;
+	}
+	}
+	int j;
+	for(j = 0; j < last_used; j++)
+	{
+		enqueue(process, updated_pids[j]);
+		enqueue(resources, updated_res[j]);
+	}
+}
+
 void initialize_resources(){
 //srand(time(NULL));
 int i;
@@ -223,8 +262,8 @@ case '?':
         return 1;
 }
 
-Queue* process = create_queue(20);
-Queue* resource = create_queue(20);
+process = create_queue(20);
+resources = create_queue(20);
 
 signal(SIGALRM, myhandler);
 alarm(2);
@@ -323,25 +362,34 @@ while(1)
 		int processId = msgqueue.processNumber;
 		int index = getIndexById(processId);
 		int resource = msgqueue.resourceId;
-		//if(system_state -> available[resource] > 0)
+		if(system_state -> available[resource] > 0)
+		{
 		system_state -> allocated[index][resource] += 1;
 		system_state -> available[resource] -= 1;
-		fprintf(stderr, "Request %d , by process %d \n", resource, processId);
+		fprintf(stderr, "Master has detected process %d requesting  R%d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
 		if(checkIfSafeState(*system_state))
 		{
 			msgqueue.msg_type = processId;
-			fprintf(stderr, "Safe State:  Request %d, by process %d \n", resource, processId); 
+			fprintf(stderr, "Master granting process  %d request  R%d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
 			printInfo();
 			msgsnd(msgqueueId, &msgqueue, sizeof(msgqueue), 0);
 		}
 		else
 		{
-			fprintf(stderr, "********************************* \n");
+			fprintf(stderr, "************************************************************************************************ \n");
 			fprintf(stderr, "Detected Unsafe State: Request denied for Process %d, Resource %d\n", processId, resource);
 			system_state -> allocated[index][resource] -= 1;
                 	system_state -> available[resource] += 1;		
-			//enqueue(resource, resource);
-			//enqueue(process, processId);
+			enqueue(resources, resource);
+			enqueue(process, processId);
+			fprintf(stderr, "Master blocking process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		}
+		}
+		else
+		{
+			fprintf(stderr, "Request > AVailable. Suspending process %d \n", processId);
+			enqueue(resources, resource);
+                        enqueue(process, processId);
 		}
 	}
 	else if(msgqueue.request_type == 1)
@@ -351,6 +399,20 @@ while(1)
                 int resource = msgqueue.resourceId;
 		system_state -> allocated[index][resource] -= 1;
                 system_state -> available[resource] += 1;	
+		fprintf(stderr, "Master has acknowledged %d releasing  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		run_blocked_process();
+	}
+	else
+	{
+		int processId = msgqueue.processNumber;
+		fprintf(stderr, "Master found process  %d terminating. Release all its allocated \n", processId);
+                int index = getIndexById(processId);
+		int n;
+		for(n = 0; n < 20; n++)
+		{
+		system_state -> available[n] += system_state -> allocated[index][n];
+		}	
+		child_pids[index] = 0;		
 	} 
 	}
 
