@@ -56,18 +56,18 @@ for(m = 0; m < 20; m++)
 int randomNumber, choice;
 while(1)
 {
-	if((clock -> seconds >= startsec) && (clock -> nanoseconds >= startnano))
+	if((clock -> seconds >= startsec) || (clock -> nanoseconds >= startnano))
 	{	
 	srand((seed_child++)  * mypid);
 	randomNumber = rand() % 100;
 	if(randomNumber <= 50)
         	choice = 0;
-	else if(randomNumber <= 98)
+	else if(randomNumber <= 90)
         	choice = 1;
 	else
 		choice = 2;
 
-	if(choice == 0)		//Request a resource
+	if(choice == 0)		
 	{
 		srand((seed_child++)  * mypid);
 		int resource = rand() % 20;
@@ -82,12 +82,10 @@ while(1)
 		pid_alloc[resource]++;
 		}	
 	}
-	else if(choice == 1)   //Release a resource
+	else if(choice == 1)  
 	{
                 srand((seed_child++)  * mypid);
 		int resource = rand() % 20;
-		//while(1)
-		//{
 		if(pid_alloc[resource] > 0)
 		{
 		msgqueue.msg_type = 1;
@@ -96,18 +94,12 @@ while(1)
 		msgqueue.request_type = 1;
 		pid_alloc[resource]--;
 		msgsnd(msgqueueId, &msgqueue, sizeof(msgqueue), 0);
-		//break;
 		}
-		/*else
-		{
-		srand((seed_child++)  * mypid);
-		resource = rand() % 20;
-		}
-		} */
 	}
 	else
 	{
-		msgqueue.msg_type = 2;
+		msgqueue.msg_type = 1;
+		msgqueue.request_type = 2;
 		msgqueue.processNumber = mypid;
 		msgsnd(msgqueueId, &msgqueue, sizeof(msgqueue), 0);
 		break;

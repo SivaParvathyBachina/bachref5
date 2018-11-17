@@ -16,18 +16,19 @@
 #define LOGFILESIZE 100000
 
 int status,x,i,m,n,p,q;
-key_t clockKey,shmKey, stateKey, msgqueueKey;
-int clockId, stateId, shmId, msgqueueId;
+key_t clockKey, stateKey, msgqueueKey;
+int clockId, stateId,  msgqueueId;
 logical_clock *clock;
 res_desc *system_state;
 FILE *logfile;
 char *file_name;
 char *res_claims[21];
-int child_pids[18];
+int child_pids[18], term = 0, child_count = 0;
 long seed_value ;
-int bit_vector[18];
+int bit_vector[18], deadlock_run = 0, log_lines = 0, verbose = 1;
 Queue* process;
 Queue* resources;
+int count_release = 0, count_blocked = 0, count_unb_safe = 0;
 int updated_pids[18], last_used = 0;
 int updated_res[18];
 
@@ -35,8 +36,13 @@ void clearSharedMemory() {
 fprintf(stderr, "------------------------------- CLEAN UP ----------------------- \n");
 shmdt((void *)clock);
 shmdt((void *)system_state);
-//fprintf(stderr,"Closing File \n");
-//fclose(logfile);
+fprintf(stderr,"Closing File \n");
+fclose(logfile);
+fprintf(stderr, "DeadLock ran %d \n", deadlock_run);
+fprintf(stderr, "Acknowledged %d \n", count_release);
+fprintf(stderr, "Blocked: %d \n", count_blocked);
+fprintf(stderr, "Terminated %d \n", term);
+fprintf(stderr, "Child Forked %d \n", child_count); 
 fprintf(stderr, "OSS started detaching all the shared memory segments \n");
 shmctl(clockId, IPC_RMID, NULL);
 shmctl(stateId, IPC_RMID, NULL);
@@ -48,28 +54,56 @@ void printInfo()
 {
 int p, q;
 int i;
-	fprintf(stderr, "Resources : ");
+	if(log_lines < 100000 && verbose)
+	{
+	log_lines++;
+	fprintf(logfile, "Resources : ");
+	}
 	for (i = 0; i < 20; i++)
         {
-		fprintf(stderr, "%d  ", system_state -> resources[i]);	
+		if(log_lines < 100000 && verbose)
+	        {
+		log_lines++;
+		fprintf(logfile, "%d  ", system_state -> resources[i]);	
+		}
 	}
-	fprintf(stderr, "\n");
-	fprintf(stderr, "Available : ");
+	if(log_lines < 100000 && verbose)
+        {
+	log_lines++;
+	fprintf(logfile, "\n");
+	fprintf(logfile, "Available : ");
+	}
         for (i = 0; i < 20; i++)
         {
-		fprintf(stderr, "%d  ", system_state -> available[i]);
+		if(log_lines < 100000 && verbose)
+	        {
+		log_lines++;
+		fprintf(logfile, "%d  ", system_state -> available[i]);
+		}
         }
-	printf("\n");
+	 if(log_lines < 100000 && verbose)
+        {
+	log_lines++;
+	fprintf(logfile, "\n");
+	}
 
 for (p =0; p< 18;p++)
 {
         for(q=0; q< 20; q++)
         {
-        fprintf(stderr, "%d ", system_state -> allocated[p][q]);
+	 if(log_lines < 100000 && verbose)
+        {
+	log_lines++;
+        fprintf(logfile, "%d ", system_state -> allocated[p][q]);
+	}
 	//fprintf(stderr, "%d ", system_state -> available[q]);
         if(q == 19)
-        fprintf(stderr, "\n");
+	 if(log_lines < 100000 && verbose)
+        {
+	log_lines++;
+        fprintf(logfile, "\n");
         }
+	}
 }
 }
 
@@ -105,6 +139,7 @@ exit(1);
 
 int checkIfSafeState(res_desc system_state)
 {
+	deadlock_run++;
 	int currentavailable[20];
 	int m,k = 0,q = 0, resource_count = 0, process_index;
 	for(m = 0; m < 18; m++)
@@ -187,19 +222,31 @@ void run_blocked_process()
         {
 	int index = getIndexById(processId);
 	bit_vector[index] = 1;
-	fprintf(stderr, "Master Unblocking process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
-	//fprintf(stderr, "Index of the Unblocking process %d \n", index);	
+	if(log_lines < 100000 && !verbose)
+        {
+        log_lines++;
+	fprintf(logfile, "Master Unblocking process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+	}
 	system_state -> allocated[index][resource] += 1;
 	system_state -> available[resource] -= 1;
 	if(checkIfSafeState(*system_state))
 	{
-		fprintf(stderr, "Master granted process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		count_unb_safe++;	
+		if(log_lines < 100000 && !verbose)
+                {
+                log_lines++;
+		fprintf(logfile, "Master granted process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
 		printInfo();
-		fprintf(stderr, "Master removed process %d  from blocked queue %d \n",processId, resource); 
+		fprintf(logfile, "Master removed process %d  from blocked queue %d \n",processId, resource); 
+		}
 	}
 	else
 	{
-		fprintf(stderr, "Master has detected unsafe state for process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		 if(log_lines < 100000 && !verbose)
+                {
+                log_lines++;
+		fprintf(logfile, "Master has detected unsafe state for process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		}
 		system_state -> allocated[index][resource] -= 1;
                 system_state -> available[resource] += 1;
 		updated_pids[last_used] = processId;
@@ -211,8 +258,12 @@ void run_blocked_process()
 	{
 		updated_pids[last_used] = processId;
                 updated_res[last_used] = resource;
-		fprintf(stderr, "Master cannot allocate the request for unblockd process %d for request %d at time %ld:%ld\n",  processId, resource, clock -> seconds, clock -> nanoseconds); 
-                last_used++;	
+		if(log_lines < 100000 && !verbose)
+                {
+                log_lines++;
+		fprintf(logfile, "Master cannot allocate the request for unblockd process %d for request %d at time %ld:%ld\n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		}
+       	     last_used++;	
 	}
 	}
 	int j;
@@ -224,12 +275,11 @@ void run_blocked_process()
 }
 
 void initialize_resources(){
-//srand(time(NULL));
 int i;
 	for(i = 0; i < 20; i++)
 	{
 		srand(seed_value++);
-		system_state -> resources[i] = rand() % 10 + 1;
+		system_state -> resources[i] = rand() % (20 - 10 + 1) + 10;
 		system_state -> available[i] = system_state -> resources[i];
 	}
 }
@@ -251,8 +301,7 @@ void generateresourceclaims(int pindex)
 	{
 		char array[sizeof(int)];
 		srand(seed_value++);
-		maxres = system_state -> resources[q];
-		system_state -> maxclaims[pindex][q] = rand() % maxres;
+		system_state -> maxclaims[pindex][q] = rand() % 10 + 1;
 		snprintf(array, sizeof(int), "%d", system_state -> maxclaims[pindex][q]);
 		res_claims[q]= malloc(sizeof(array));
 		strcpy(res_claims[q], array);
@@ -269,6 +318,9 @@ case 'h':
         return 1;
 case 'l':
 	file_name = optarg;
+	break;
+case 'v':
+	verbose = atoi(optarg);
 	break;
 case '?':
         fprintf(stderr, "Please give '-h' for help to see valid arguments \n");
@@ -313,6 +365,12 @@ fprintf(stderr, "Allocated Shared Memory For State Struct \n");
 
 msgqueueKey = ftok(".", 'p');
 msgqueueId = msgget(msgqueueKey, IPC_CREAT | 0666);
+if(file_name == NULL)
+file_name = "default";
+logfile = fopen(file_name, "w");
+
+fprintf(stderr, "Opened Log File for writing Output::: %s \n", file_name);
+
 
 pid_t mypid;
 int n;
@@ -324,16 +382,11 @@ for(n = 0;n < 18; n++)
 
 initialize_resources();
 
-int m; 
-for(m = 0; m< 20; m++)
-	fprintf(stderr, "%d ", system_state -> resources[m]);
-fprintf(stderr, "\n");
-fprintf(stderr, "---------------------------------------------------------- \n");
-
 
 int index = -1,b, next_child_time_nano, next_child_time_sec;
 while(1)
 {
+	//perror("OSS ");
 	index = -1;
 	for(b = 0; b< 18; b++)
 	{
@@ -343,7 +396,7 @@ while(1)
 		break;
 		}
 	}
-		if((index >= 0) && (next_child_time_sec >= clock -> seconds && next_child_time_nano >= clock -> nanoseconds))
+		if((index >= 0) && (next_child_time_sec >= clock -> seconds || next_child_time_nano >= clock -> nanoseconds))
 		{
 			generateresourceclaims(index);
 			if((mypid = fork()) ==0)
@@ -356,11 +409,12 @@ while(1)
                 	fprintf(stderr, "Error in exec");
 			exit(0); 
 			}
+		child_count++;
 		child_pids[index] = mypid;
 		bit_vector[index] = 1;
 		}
 
-	 srand(seed_value++);
+	srand(seed_value++);
         next_child_time_nano += 500000000;
         if(next_child_time_nano >= NANOSECOND)
         {
@@ -369,7 +423,7 @@ while(1)
         }
 	
 	if((msgrcv(msgqueueId,  &msgqueue, sizeof(msgqueue), 1, IPC_NOWAIT)) != -1)
-	{ 
+	{
 	if(msgqueue.request_type == 0)
 	{
 		int processId = msgqueue.processNumber;
@@ -379,29 +433,50 @@ while(1)
 		{
 		system_state -> allocated[index][resource] += 1;
 		system_state -> available[resource] -= 1;
-		fprintf(stderr, "Master has detected process %d requesting  R%d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		if(log_lines < 100000 && verbose)
+		{
+		log_lines++;
+		fprintf(logfile, "Master has detected process %d requesting  R%d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		}
 		if(checkIfSafeState(*system_state))
 		{
 			msgqueue.msg_type = processId;
-			fprintf(stderr, "Master granting process  %d request  R%d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+			if(log_lines < 100000 && verbose)
+                	{
+                	log_lines++;
+			fprintf(logfile, "Master granting process  %d request  R%d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
 			printInfo();
+			}
 			msgsnd(msgqueueId, &msgqueue, sizeof(msgqueue), 0);
 		}
 		else
 		{
-			fprintf(stderr, "************************************************************************************************ \n");
-			fprintf(stderr, "Detected Unsafe State: Request denied for Process %d, Resource %d\n", processId, resource);
+			if(log_lines < 100000 && verbose)
+                	{
+                	log_lines++;
+			fprintf(logfile, "************************************************************************************************ \n");
+			fprintf(logfile, "Detected Unsafe State: Request denied for Process %d, Resource %d\n", processId, resource);
+			}
 			system_state -> allocated[index][resource] -= 1;
                 	system_state -> available[resource] += 1;		
 			enqueue(resources, resource);
 			enqueue(process, processId);
+			count_blocked++;
 			bit_vector[index] = 0;
-			fprintf(stderr, "Master blocking process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+			if(log_lines < 100000 && !verbose)
+                	{
+                	log_lines++;
+			fprintf(logfile, "Master blocking process %d requesting  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+			}
 		}
 		}
 		else
 		{
-			fprintf(stderr, "Request > AVailable. Suspending process %d \n", processId);
+			if(log_lines < 100000 && verbose)
+                	{
+                	log_lines++;
+			fprintf(logfile, "Request > AVailable. Suspending process %d at time %ls:%ld \n", processId,  clock -> seconds, clock -> nanoseconds);
+			}
 			enqueue(resources, resource);
                         enqueue(process, processId);
 		}
@@ -412,29 +487,45 @@ while(1)
                 int index = getIndexById(processId);
                 int resource = msgqueue.resourceId;
 		system_state -> allocated[index][resource] -= 1;
-                system_state -> available[resource] += 1;	
-		fprintf(stderr, "Master has acknowledged %d releasing  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+                system_state -> available[resource] += 1;
+		count_release++;	
+		if(log_lines < 100000 && verbose)
+                {
+                log_lines++;
+		fprintf(logfile, "Master has acknowledged %d releasing  %d at time %ld:%ld \n",  processId, resource, clock -> seconds, clock -> nanoseconds);
+		}
 		run_blocked_process();
 	}
-	else
+	else 
 	{
 		int processId = msgqueue.processNumber;
-		fprintf(stderr, "Master found process  %d terminating. Release all its allocated \n", processId);
-                int index = getIndexById(processId);
+		term++;
+		if(log_lines < 100000 && verbose)
+                {
+                log_lines++;
+		fprintf(logfile, "Master found process  %d terminating, releasing all its allocated at time %ld:%ld \n",  processId, clock -> seconds, clock -> nanoseconds);
+                }
+		int index = getIndexById(processId);
 		int n;
 		for(n = 0; n < 20; n++)
 		{
 		system_state -> available[n] += system_state -> allocated[index][n];
-		}	
-		child_pids[index] = 0;		
+		system_state -> allocated[index][n] = 0;
+		}
+		bit_vector[index] = -1;
+                child_pids[index] = 0;
+		waitpid(processId, &status, 0);
 	} 
 	}
+	else
+		clock -> seconds += 1;
 
-	clock -> nanoseconds += 1000000;
+	clock -> nanoseconds += 1000;
 	if(clock -> nanoseconds >= NANOSECOND) 
 	{
 	clock -> seconds += (clock -> nanoseconds) / NANOSECOND;
 	clock -> nanoseconds = (clock -> nanoseconds) % NANOSECOND;
+
 	}
 }
 
